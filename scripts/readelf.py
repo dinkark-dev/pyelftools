@@ -9,6 +9,7 @@
 #-------------------------------------------------------------------------------
 import argparse
 import os, sys
+import re
 import string
 import traceback
 import itertools
@@ -94,6 +95,13 @@ def _get_cu_base(cu):
         return base_ip
     else:
         raise ValueError("Can't find the base IP (low_pc) for a CU")
+
+# Matcher for all control characters, for transforming them into "^X" form when
+# formatting symbol names for display.
+_CONTROL_CHAR_RE = re.compile(r'[\x01-\x1f]')
+
+def _format_symbol_name(s):
+    return _CONTROL_CHAR_RE.sub(lambda match: '^' + chr(0x40 + ord(match[0])), s)
 
 class ReadElf(object):
     """ display_* methods are used to emit output into the output stream
@@ -260,15 +268,15 @@ class ReadElf(object):
                 description += ", quad-float ABI"
 
         elif self.elffile['e_machine'] == "EM_LOONGARCH":
-            if (flags & E_FLAGS.EF_LOONGARCH_FLOAT_ABI) == E_FLAGS.EF_LOONGARCH_FLOAT_ABI_SOFT:
+            if (flags & E_FLAGS.EF_LOONGARCH_ABI_MODIFIER_MASK) == E_FLAGS.EF_LOONGARCH_ABI_SOFT_FLOAT:
                 description += ", SOFT-FLOAT"
-            if (flags & E_FLAGS.EF_LOONGARCH_FLOAT_ABI) == E_FLAGS.EF_LOONGARCH_FLOAT_ABI_SINGLE:
+            if (flags & E_FLAGS.EF_LOONGARCH_ABI_MODIFIER_MASK) == E_FLAGS.EF_LOONGARCH_ABI_SINGLE_FLOAT:
                 description += ", SINGLE-FLOAT"
-            if (flags & E_FLAGS.EF_LOONGARCH_FLOAT_ABI) == E_FLAGS.EF_LOONGARCH_FLOAT_ABI_DOUBLE:
+            if (flags & E_FLAGS.EF_LOONGARCH_ABI_MODIFIER_MASK) == E_FLAGS.EF_LOONGARCH_ABI_DOUBLE_FLOAT:
                 description += ", DOUBLE-FLOAT"
-            if (flags & E_FLAGS.EF_LOONGARCH_ABI) == E_FLAGS.EF_LOONGARCH_ABI_V0:
+            if (flags & E_FLAGS.EF_LOONGARCH_OBJABI_MASK) == E_FLAGS.EF_LOONGARCH_OBJABI_V0:
                 description += ", OBJ-v0"
-            if (flags & E_FLAGS.EF_LOONGARCH_ABI) == E_FLAGS.EF_LOONGARCH_ABI_V1:
+            if (flags & E_FLAGS.EF_LOONGARCH_OBJABI_MASK) == E_FLAGS.EF_LOONGARCH_OBJABI_V1:
                 description += ", OBJ-v1"
 
         return description
@@ -495,7 +503,7 @@ class ReadElf(object):
                     describe_symbol_shndx(self._get_symbol_shndx(symbol,
                                                                  nsym,
                                                                  section_index)),
-                    symbol_name,
+                    _format_symbol_name(symbol_name),
                     version_info))
 
     def display_dynamic_tags(self):
@@ -632,7 +640,7 @@ class ReadElf(object):
                         self._format_hex(
                             symbol['st_value'],
                             fullhex=True, lead0x=False),
-                        symbol_name))
+                        _format_symbol_name(symbol_name)))
                     if section.is_RELA():
                         self._emit(' %s %x' % (
                             '+' if rel['r_addend'] >= 0 else '-',
@@ -1504,24 +1512,20 @@ class ReadElf(object):
 
             # Look at the registers the decoded table describes.
             # We build reg_order here to match readelf's order. In particular,
-            # registers are sorted by their number, and the register matching
-            # ra_regnum is always listed last with a special heading.
+            # registers are sorted by their number, so that the register
+            # matching ra_regnum is usually listed last with a special heading.
+            # (LoongArch is a notable exception in that its return register's
+            # DWARF register number is not greater than other GPRs.)
             decoded_table = entry.get_decoded()
-            reg_order = sorted(filter(
-                lambda r: r != ra_regnum,
-                decoded_table.reg_order))
+            reg_order = sorted(decoded_table.reg_order)
             if len(decoded_table.reg_order):
-
                 # Headings for the registers
                 for regnum in reg_order:
+                    if regnum == ra_regnum:
+                        self._emit('ra      ')
+                        continue
                     self._emit('%-6s' % describe_reg_name(regnum))
-                self._emitline('ra      ')
-
-                # Now include ra_regnum in reg_order to print its values
-                # similarly to the other registers.
-                reg_order.append(ra_regnum)
-            else:
-                self._emitline()
+            self._emitline()
 
             for line in decoded_table.table:
                 self._emit(self._format_hex(
@@ -1680,6 +1684,18 @@ class ReadElf(object):
         else:
             self._dump_debug_rangesection(di, range_lists_sec)
 
+    def _dump_debug_rnglists_CU_header(self, cu):
+        self._emitline(' Table at Offset: %s:' % self._format_hex(cu.cu_offset, alternate=True))
+        self._emitline('  Length:          %s' % self._format_hex(cu.unit_length, alternate=True))
+        self._emitline('  DWARF version:   %d' % cu.version)
+        self._emitline('  Address size:    %d' % cu.address_size)
+        self._emitline('  Segment size:    %d' % cu.segment_selector_size)
+        self._emitline('  Offset entries:  %d\n' % cu.offset_count)
+        if cu.offsets and len(cu.offsets):
+            self._emitline('  Offsets starting at 0x%x:' % cu.offset_table_offset)
+            for i_offset in enumerate(cu.offsets):
+                self._emitline('    [%6d] 0x%x' % i_offset)
+
     def _dump_debug_rangesection(self, di, range_lists_sec):
         # Last amended to match readelf 2.41
         ver5 = range_lists_sec.version >= 5
@@ -1688,53 +1704,48 @@ class ReadElf(object):
         addr_width = addr_size * 2 # In hex digits, 8 or 16
         line_template = "    %%08x %%0%dx %%0%dx %%s" % (addr_width, addr_width)
         base_template = "    %%08x %%0%dx (base address)" % (addr_width)
+        base_template_indexed = "    %%08x %%0%dx (base address index) %%0%dx (base address)" % (addr_width, addr_width)
 
         # In order to determine the base address of the range
         # We need to know the corresponding CU.
         cu_map = {die.attributes['DW_AT_ranges'].value : cu  # Range list offset => CU
             for cu in di.iter_CUs()
             for die in cu.iter_DIEs()
-            if 'DW_AT_ranges' in die.attributes}        
+            if 'DW_AT_ranges' in die.attributes}
+        
+        rcus = list(range_lists_sec.iter_CUs()) if ver5 else None
+        rcu_index = 0
+        next_rcu_offset = 0
 
-        if ver5: # Dump by CUs - unsure at this point what does readelf do, ranges dump is buggy in 2.41
-            self._emitline('Contents of the %s section:\n\n\n' % section_name)
-            for cu in range_lists_sec.iter_CUs():
-                self._emitline(' Table at Offset: %s:' % self._format_hex(cu.cu_offset, alternate=True))
-                self._emitline('  Length:          %s' % self._format_hex(cu.unit_length, alternate=True))
-                self._emitline('  DWARF version:   %d' % cu.version)
-                self._emitline('  Address size:    %d' % cu.address_size)
-                self._emitline('  Segment size:    %d' % cu.segment_selector_size)
-                self._emitline('  Offset entries:  %d\n' % cu.offset_count)
-                # Is the offset table dumped too?
-                for (i, range_list) in enumerate(range_lists_sec.iter_CU_range_lists_ex(cu)):
-                    list_offset = range_list[0].entry_offset
-                    range_list = list(range_lists_sec.translate_v5_entry(entry, cu_map[list_offset]) for entry in range_list)
-                    self._emitline('  Offset: %s, Index: %d' % (self._format_hex(list_offset, alternate=True), i))
-                    self._emitline('    Offset   Begin    End')
-                    self._dump_rangelist(range_list, cu_map, ver5, line_template, base_template)
-        else: # Dump by DIE reference offset
-            range_lists = list(range_lists_sec.iter_range_lists())
-            if len(range_lists) == 0:
-                # Present but empty ranges section - readelf outputs a message
-                self._emitline("\nSection '%s' has no debugging data." % section_name)
-                return
+        range_lists = list(range_lists_sec.iter_range_lists())
+        if len(range_lists) == 0:
+            # Present but empty ranges section - readelf outputs a message
+            self._emitline("\nSection '%s' has no debugging data." % section_name)
+            return
 
-            self._emitline('Contents of the %s section:\n\n\n' % section_name)
+        self._emitline('Contents of the %s section:\n\n\n' % section_name)
+        if not ver5:
             self._emitline('    Offset   Begin    End')
 
-            for range_list in range_lists:
-                if len(range_list) == 0: # working around a bogus behavior in readelf 2.41
-                    # No entries means no offset. Dirty hack: peek the stream position
-                    range_list_offset = range_lists_sec.stream.tell() - self._dwarfinfo.config.default_address_size*2
-                    self._emitline('    %08x <End of list>' % (range_list_offset))
-                else:
-                    self._dump_rangelist(range_list, cu_map, ver5, line_template, base_template)
+        for range_list in range_lists:
+            # Emit CU headers before the curernt rangelist
+            if ver5 and range_list[0].entry_offset > next_rcu_offset:
+                while range_list[0].entry_offset > next_rcu_offset:
+                    rcu = rcus[rcu_index]
+                    self._dump_debug_rnglists_CU_header(rcu)
+                    next_rcu_offset = rcu.offset_after_length + rcu.unit_length
+                    rcu_index += 1
+                self._emitline('    Offset   Begin    End')
+            self._dump_rangelist(range_list, cu_map, ver5, line_template, base_template, base_template_indexed, range_lists_sec)
 
-    def _dump_rangelist(self, range_list, cu_map, ver5, line_template, base_template):
+        # TODO: trailing empty CUs, if any?
+
+    def _dump_rangelist(self, range_list, cu_map, ver5, line_template, base_template, base_template_indexed, range_lists_sec):
         # Weird discrepancy in binutils: for DWARFv5 it outputs entry offset,
         # for DWARF<=4 list offset.
         first = range_list[0]
         base_ip = _get_cu_base(cu_map[first.entry_offset])
+        raw_v5_rangelist = None
         for entry in range_list:
             if isinstance(entry, RangeEntry):
                 postfix = ' (start == end)' if entry.begin_offset == entry.end_offset else ''
@@ -1745,9 +1756,22 @@ class ReadElf(object):
                     postfix))
             elif isinstance(entry,RangeBaseAddressEntry):
                 base_ip = entry.base_address
-                self._emitline(base_template % (
-                    entry.entry_offset if ver5 else first.entry_offset,
-                    entry.base_address))
+                # V5 base entries with index are reported differently in readelf - need to go back to the raw V5 format
+                # Maybe other subtypes too, but no such cases  in the test corpus
+                raw_v5_entry = None
+                if ver5:
+                    if not raw_v5_rangelist:
+                        raw_v5_rangelist = range_lists_sec.get_range_list_at_offset_ex(range_list[0].entry_offset)
+                    raw_v5_entry = next(re for re in raw_v5_rangelist if re.entry_offset == entry.entry_offset)
+                if raw_v5_entry and raw_v5_entry.entry_type == 'DW_RLE_base_addressx':
+                    self._emitline(base_template_indexed % (
+                        entry.entry_offset,
+                        raw_v5_entry.index,
+                        entry.base_address))
+                else:
+                    self._emitline(base_template % (
+                        entry.entry_offset if ver5 else first.entry_offset,
+                        entry.base_address))
             else:
                 raise NotImplementedError("Unknown object in a range list")
         last = range_list[-1]

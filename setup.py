@@ -24,7 +24,7 @@ setup(
     description='Library for analyzing ELF files and DWARF debugging information',
     long_description=description,
     license='Public domain',
-    version='0.29',
+    version='0.30',
     author='Eli Bendersky',
     maintainer='Eli Bendersky',
     author_email='eliben@gmail.com',
@@ -44,5 +44,6 @@ setup(
         'elftools.construct', 'elftools.construct.lib',
         ],
 
-    scripts=['scripts/readelf.py']
+    scripts=['scripts/readelf.py'],
+    package_data={'elftools': ['py.typed']}
 )
