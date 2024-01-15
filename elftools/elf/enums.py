@@ -619,6 +619,10 @@ ENUM_D_TAG_MIPS = dict(
     DT_MIPS_RLD_MAP_REL=0x70000035,
 )
 
+ENUM_D_TAG_AARCH64 = dict(
+    DT_AARCH64_BTI_PLT=0x70000001,
+)
+
 # Here is the mapping from e_machine enum to the extra dynamic tags which it
 # validates. Solaris is missing from this list because its inclusion is not
 # controlled by e_machine but rather e_ident[EI_OSABI].
@@ -628,6 +632,7 @@ ENUM_D_TAG_MIPS = dict(
 ENUMMAP_EXTRA_D_TAG_MACHINE = dict(
     EM_MIPS=ENUM_D_TAG_MIPS,
     EM_MIPS_RS3_LE=ENUM_D_TAG_MIPS,
+    EM_AARCH64=ENUM_D_TAG_AARCH64
 )
 
 # Here is the full combined mapping from tag name to value
@@ -934,6 +939,69 @@ ENUM_RELOC_TYPE_LOONGARCH = dict(
     _default_=Pass,
 )
 
+ENUM_RELOC_TYPE_S390X = dict(
+    R_390_NONE=0,
+    R_390_8=1,
+    R_390_12=2,
+    R_390_16=3,
+    R_390_32=4,
+    R_390_PC32=5,
+    R_390_GOT12=6,
+    R_390_GOT32=7,
+    R_390_PLT32=8,
+    R_390_COPY=9,
+    R_390_GLOB_DAT=10,
+    R_390_JMP_SLOT=11,
+    R_390_RELATIVE=12,
+    R_390_GOTOFF32=13,
+    R_390_GOTPC=14,
+    R_390_GOT16=15,
+    R_390_PC16=16,
+    R_390_PC16DBL=17,
+    R_390_PLT16DBL=18,
+    R_390_PC32DBL=19,
+    R_390_PLT32DBL=20,
+    R_390_GOTPCDBL=21,
+    R_390_64=22,
+    R_390_PC64=23,
+    R_390_GOT64=24,
+    R_390_PLT64=25,
+    R_390_GOTENT=26,
+    R_390_GOTOFF16=27,
+    R_390_GOTOFF64=28,
+    R_390_GOTPLT12=29,
+    R_390_GOTPLT16=30,
+    R_390_GOTPLT32=31,
+    R_390_GOTPLT64=32,
+    R_390_GOTPLTENT=33,
+    R_390_PLTOFF16=34,
+    R_390_PLTOFF32=35,
+    R_390_PLTOFF64=36,
+    R_390_TLS_LOAD=37,
+    R_390_TLS_GDCALL=38,
+    R_390_TLS_LDCALL=39,
+    R_390_TLS_GD64=41,
+    R_390_TLS_GOTIE12=42,
+    R_390_TLS_GOTIE64=44,
+    R_390_TLS_LDM64=46,
+    R_390_TLS_IE64=48,
+    R_390_TLS_IEENT=49,
+    R_390_TLS_LE64=51,
+    R_390_TLS_LDO64=53,
+    R_390_TLS_DTPMOD=54,
+    R_390_TLS_DTPOFF=55,
+    R_390_TLS_TPOFF=56,
+    R_390_20=57,
+    R_390_GOT20=58,
+    R_390_GOTPLT20=59,
+    R_390_TLS_GOTIE20=60,
+    R_390_IRELATIVE=61,
+    R_390_PC12DBL=62,
+    R_390_PLT12DBL=63,
+    R_390_PC24DBL=64,
+    R_390_PLT24DBL=65,
+)
+
 # Sunw Syminfo Bound To special values
 ENUM_SUNW_SYMINFO_BOUNDTO = dict(
     SYMINFO_BT_SELF=0xffff,
@@ -1002,6 +1070,7 @@ ENUM_NOTE_GNU_PROPERTY_TYPE = dict(
     GNU_PROPERTY_X86_ISA_1_NEEDED=0xc0008002,
     GNU_PROPERTY_X86_FEATURE_2_USED=0xc0010001,
     GNU_PROPERTY_X86_ISA_1_USED=0xc0010002,
+    GNU_PROPERTY_AARCH64_FEATURE_1_AND=0xc0000000,
     _default_=Pass,
 )
 
