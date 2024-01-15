@@ -1335,6 +1335,9 @@ class ReadElf(object):
                     self._format_hex(entry['CIE_id'], fieldsize=8, lead0x=False)))
                 self._emitline('  Version:               %d' % entry['version'])
                 self._emitline('  Augmentation:          "%s"' % bytes2str(entry['augmentation']))
+                if entry['version'] >= 4:
+                    self._emitline('  Pointer Size: %u' % entry['address_size'])
+                    self._emitline('  Segment Size: %u' % entry['segment_size'])
                 self._emitline('  Code alignment factor: %u' % entry['code_alignment_factor'])
                 self._emitline('  Data alignment factor: %d' % entry['data_alignment_factor'])
                 self._emitline('  Return address column: %d' % entry['return_address_register'])

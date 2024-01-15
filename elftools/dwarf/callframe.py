@@ -77,20 +77,25 @@ class CallFrameInfo(object):
         entries = []
         offset = 0
         while offset < self.size:
-            entries.append(self._parse_entry_at(offset))
-            offset = self.stream.tell()
+            if offset in self._entry_cache:
+                entry = self._entry_cache[offset]
+                entries.append(entry)
+                offset = offset + entry['length'] + entry.structs.initial_length_field_size()
+            else:
+                entries.append(self._parse_entry_at(offset))
+                offset = self.stream.tell()
         return entries
 
     def _parse_entry_at(self, offset):
         """ Parse an entry from self.stream starting with the given offset.
             Return the entry object. self.stream will point right after the
-            entry.
+            entry (unless the entry is returned from the cache).
         """
         if offset in self._entry_cache:
             return self._entry_cache[offset]
 
         entry_length = struct_parse(
-            self.base_structs.Dwarf_uint32(''), self.stream, offset)
+            self.base_structs.Dwarf_initial_length(''), self.stream, offset)
 
         if self.for_eh_frame and entry_length == 0:
             return ZERO(offset)
@@ -116,6 +121,18 @@ class CallFrameInfo(object):
         # Parse the header, which goes up to and excluding the sequence of
         # instructions.
         if is_CIE:
+            # Read the next field to get the CIE version
+            version = struct_parse(
+                entry_structs.Dwarf_uint8(''), self.stream)
+
+            # Replace the default entry struct version used for parsing
+            if version != entry_structs.dwarf_version:
+                entry_structs = DWARFStructs(
+                    little_endian=self.base_structs.little_endian,
+                    dwarf_format=dwarf_format,
+                    address_size=self.base_structs.address_size,
+                    dwarf_version=version)
+
             header_struct = (entry_structs.EH_CIE_header
                              if self.for_eh_frame else
                              entry_structs.Dwarf_CIE_header)
@@ -131,7 +148,8 @@ class CallFrameInfo(object):
             entry_structs = DWARFStructs(
                 little_endian=entry_structs.little_endian,
                 dwarf_format=entry_structs.dwarf_format,
-                address_size=header.address_size)
+                address_size=header.address_size,
+                dwarf_version=header.version)
 
         # If the augmentation string is not empty, hope to find a length field
         # in order to skip the data specified augmentation.
@@ -167,7 +185,7 @@ class CallFrameInfo(object):
                 augmentation_bytes=aug_bytes,
                 structs=entry_structs)
 
-        else: # FDE
+        else:  # FDE
             cie = self._parse_cie_for_fde(offset, header, entry_structs)
             self._entry_cache[offset] = FDE(
                 header=header, instructions=instructions, offset=offset,
